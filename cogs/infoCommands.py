@@ -88,7 +88,7 @@ class InfoCommands(commands.Cog):
             print(f"Error checking channel permission: {e}")
             return False
 
-    @commands.hybrid_command(name="setinfochannel", description="Allow a channel for !info commands")
+    @commands.hybrid_command(name="setinfochannel", description="Allow a channel for !check commands")
     @commands.has_permissions(administrator=True)
     async def set_info_channel(self, ctx: commands.Context, channel: discord.TextChannel):
         guild_id = str(ctx.guild.id)
@@ -96,11 +96,11 @@ class InfoCommands(commands.Cog):
         if str(channel.id) not in self.config_data["servers"][guild_id]["info_channels"]:
             self.config_data["servers"][guild_id]["info_channels"].append(str(channel.id))
             self.save_config()
-            await ctx.send(f"✅ {channel.mention} is now allowed for `!info` commands")
+            await ctx.send(f"✅ {channel.mention} is now allowed for `!check` commands")
         else:
-            await ctx.send(f"ℹ️ {channel.mention} is already allowed for `!info` commands")
+            await ctx.send(f"ℹ️ {channel.mention} is already allowed for `!check` commands")
 
-    @commands.hybrid_command(name="removeinfochannel", description="Remove a channel from !info commands")
+    @commands.hybrid_command(name="removeinfochannel", description="Remove a channel from !check commands")
     @commands.has_permissions(administrator=True)
     async def remove_info_channel(self, ctx: commands.Context, channel: discord.TextChannel):
         guild_id = str(ctx.guild.id)
@@ -125,7 +125,7 @@ class InfoCommands(commands.Cog):
                 channels.append(f"• {channel.mention if channel else f'ID: {channel_id}'}")
 
             embed = discord.Embed(
-                title="Allowed channels for !info",
+                title="Allowed channels for !check",
                 description="\n".join(channels),
                 color=discord.Color.blue()
             )
@@ -133,14 +133,14 @@ class InfoCommands(commands.Cog):
             embed.set_footer(text=f"Current cooldown: {cooldown} seconds")
         else:
             embed = discord.Embed(
-                title="Allowed channels for !info",
+                title="Allowed channels for !check",
                 description="All channels are allowed (no restriction configured)",
                 color=discord.Color.blue()
             )
 
         await ctx.send(embed=embed)
 
-    @commands.hybrid_command(name="info", description="Displays information about a Free Fire player")
+    @commands.hybrid_command(name="check", description="Displays information about a Free Fire player")
     @app_commands.describe(uid="FREE FIRE INFO")
     async def player_info(self, ctx: commands.Context, uid: str):
         guild_id = str(ctx.guild.id)
@@ -257,7 +257,7 @@ class InfoCommands(commands.Cog):
 
 
 
-            embed.set_footer(text="DEVELOPED BY THUG")
+            embed.set_footer(text="DEVELOPED BY Ashutosh Shandilay")
             await ctx.send(embed=embed)
 
             if region and uid:
