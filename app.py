@@ -20,6 +20,11 @@ def home():
     """Health check endpoint for Render"""
     return f"Bot {bot_name} is operational"
 
+@app.route('/ping')
+def ping():
+    """Extra ping endpoint for keep-alive"""
+    return "pong", 200
+
 def run_flask():
     """Run Flask with Render-compatible settings"""
     port = int(os.environ.get("PORT", 10000))
@@ -29,6 +34,9 @@ def run_flask():
 TOKEN = os.getenv("TOKEN")
 if not TOKEN:
     raise ValueError("Missing TOKEN in environment")
+
+# Render service URL for self-ping keep-alive
+RENDER_URL = os.getenv("RENDER_EXTERNAL_URL", "")
 
 class Bot(commands.Bot):
     def __init__(self):
@@ -57,6 +65,7 @@ class Bot(commands.Bot):
         
         await self.tree.sync()
         self.update_status.start()
+        self.keep_alive_ping.start()
 
     async def on_ready(self):
         """When bot connects to Discord"""
@@ -72,6 +81,14 @@ class Bot(commands.Bot):
             flask_thread = threading.Thread(target=run_flask, daemon=True)
             flask_thread.start()
             print("🚀 Flask server started in background")
+
+    async def on_disconnect(self):
+        """Log when bot disconnects"""
+        print("⚠️ Bot disconnected from Discord. Will auto-reconnect...")
+
+    async def on_resumed(self):
+        """Log when bot reconnects"""
+        print("✅ Bot reconnected to Discord!")
 
     @tasks.loop(minutes=5)
     async def update_status(self):
@@ -89,6 +106,29 @@ class Bot(commands.Bot):
     async def before_status_update(self):
         await self.wait_until_ready()
 
+    @tasks.loop(minutes=4)
+    async def keep_alive_ping(self):
+        """
+        Self-ping task to prevent Render from sleeping the service.
+        Render free tier sleeps after ~15 min of inactivity.
+        Pinging every 4 minutes keeps it awake 24/7.
+        """
+        if not RENDER_URL:
+            return  # Only run on Render
+        try:
+            async with self.session.get(f"{RENDER_URL}/ping", timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status == 200:
+                    print(f"✅ Keep-alive ping successful ({RENDER_URL}/ping)")
+                else:
+                    print(f"⚠️ Keep-alive ping returned status {resp.status}")
+        except Exception as e:
+            print(f"⚠️ Keep-alive ping failed: {e}")
+
+    @keep_alive_ping.before_loop
+    async def before_keep_alive(self):
+        await self.wait_until_ready()
+        await asyncio.sleep(30)  # Wait 30s after ready before first ping
+
     async def close(self):
         """Cleanup on shutdown"""
         if self.session:
@@ -96,20 +136,43 @@ class Bot(commands.Bot):
         await super().close()
 
 async def main():
-    bot = Bot()
-    try:
-        await bot.start(TOKEN)
-    except KeyboardInterrupt:
-        await bot.close()
-    except Exception as e:
-        print(f"⚠️ Critical error: {e}")
-        traceback.print_exc()
-        await bot.close()
+    """
+    Main entry point with auto-reconnect logic.
+    If bot crashes/disconnects, it waits and retries automatically.
+    """
+    retry_delay = 5  # seconds
+    max_retry_delay = 120  # max 2 minutes between retries
+
+    while True:
+        bot = Bot()
+        try:
+            print("🚀 Starting bot...")
+            await bot.start(TOKEN)
+        except KeyboardInterrupt:
+            print("🛑 Shutting down bot (KeyboardInterrupt)...")
+            await bot.close()
+            break
+        except discord.LoginFailure:
+            print("❌ Invalid TOKEN! Please check your TOKEN environment variable.")
+            await bot.close()
+            break
+        except Exception as e:
+            print(f"⚠️ Bot crashed: {e}")
+            traceback.print_exc()
+        finally:
+            try:
+                await bot.close()
+            except Exception:
+                pass
+
+        print(f"🔄 Reconnecting in {retry_delay} seconds...")
+        await asyncio.sleep(retry_delay)
+        retry_delay = min(retry_delay * 2, max_retry_delay)  # Exponential backoff
 
 if __name__ == "__main__":
-    # Special handling for Render's environment
     if os.environ.get('RENDER'):
         asyncio.run(main())
     else:
+        # Local development - simple run
         bot = Bot()
         bot.run(TOKEN)
